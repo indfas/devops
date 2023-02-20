@@ -1,0 +1,130 @@
+pipeline {
+   environment {
+      GIT_USERNAME = 'deploy'
+      MAILTO = 'rituraj.bordoloi@ril.com'
+      //JAVA_HOME = "/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.252.b09-2.el7_8.x86_64"
+      JAVA_HOME = "/opt/deployment/jdk1.8.0_261"
+      ENVIRONMENT = "dev"
+      MAVEN_HOME="/opt/deployment/apache-maven-3.6.3"
+      PATH="$PATH:$MAVEN_HOME/bin:$JAVA_HOME/jre/bin"
+      registry = "docker.rril.ril.com"
+      dockerImage = ''
+	  CLASSPATH = "/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/Core/default_jars/*"
+	  NPORT = 31053
+	  TPORT = 8080
+   }
+   agent { node { label 'Retail-Prod-Master' } }
+   parameters {
+    imageTag credentialId: 'deploy', description: 'Rollback', filter: '^((?!dev).)*', image: 'rrip-sample-demo', name: 'DOCKER_IMAGE', registry: 'https://docker.rril.ril.com'
+   }
+   stages {
+         stage("CleanWorkspace"){
+            steps {
+             cleanWs()
+             script {
+              try{
+                sh '''docker image ls |grep $JOB_BASE_NAME|awk '{print $3}'|xargs docker rmi -f'''
+                }catch(Exception e){
+                  notDeployed = false 
+                }
+             }
+            }
+         }
+		stage('Fatching Details') {
+		steps {
+			git credentialsId: 'Deploy', url: 'https://${GIT_URL}',branch: 'staging'
+			script {
+			sh '''echo $DOCKER_IMAGE'''
+			sh '''TAG=`echo $DOCKER_IMAGE|cut -d ":" -f2` && git checkout $TAG'''
+			}
+		    }
+		}
+		
+	    stage('Build'){
+            steps {
+             sh '''mvn clean package'''
+            }
+        }
+    	//stage('SonarQube Analysis') {
+    	//    steps {
+		//		sh '''git checkout master'''
+		//		sh '''sed -e "s/PROJECTID/${JOB_BASE_NAME}/g" /opt/deployment/sonar-project.properties > sonar-project.properties'''
+		//		sh '''/opt/sonar-scanner/bin/sonar-scanner'''
+		//		sh '''git checkout staging'''
+        // }
+    	//}
+        stage('Fortify Analysis'){
+            steps {
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/sourceanalyzer -cp $CLASSPATH -b $JOB_BASE_NAME -clean'
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/sourceanalyzer -cp $CLASSPATH -scan ${WORKSPACE} -f $JOB_BASE_NAME.fpr'
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/ReportGenerator -format pdf -f $JOB_BASE_NAME.pdf -source $JOB_BASE_NAME.fpr -template DeveloperWorkbook.xml -showSuppressed -showHidden'
+            }
+        }
+		stage('Deploy to Kubernetes') {
+          steps{
+            script {
+                sh '''
+				sed -i "s/JOB_BASE_NAME/${JOB_BASE_NAME}/g" Dockerfile
+                docker build -t $registry/$JOB_BASE_NAME:${ENVIRONMENT}-$BUILD_NUMBER .
+				IMAGE="$registry/$JOB_BASE_NAME:${ENVIRONMENT}-$BUILD_NUMBER"
+				docker push $IMAGE
+				sed -e "s/ENVIRONMENT/${ENVIRONMENT}/g" /opt/deployment/N-deploy.yaml > deployment.yaml
+				sed -i "s/JOB_BASE_NAME/${JOB_BASE_NAME}/g" deployment.yaml
+				sed -i "s|IMAGE|${IMAGE}|g" deployment.yaml
+				sed -i "s/NPORT/${NPORT}/g" deployment.yaml
+				sed -i "s|SAP_GW_MS_ENTRY|${SAP_GW_MS_ENTRY}|g" deployment.yaml
+				'''
+                try{
+                	echo "<<<<<<<< Deleting existing deployments and services >>>>>>>>>"
+                	sh '''sudo kubectl -n kube-rrip delete hpa $JOB_BASE_NAME''' 
+                	sh '''sudo kubectl -n kube-rrip delete -f deployment.yaml'''  		
+                }catch(Exception e){
+                }
+    			
+                sleep(time:30,unit:"SECONDS")
+    			try{
+			      sh '''kubectl  -n kube-rrip apply -f deployment.yaml'''
+    			}catch(Exception e){
+    			}
+				sleep(time:30,unit:"SECONDS")
+				sh '''sudo kubectl -n kube-rrip autoscale  deployment $JOB_BASE_NAME --cpu-percent=50 --min=1 --max=5'''
+				sh '''sudo kubectl -n kube-rrip get po | grep $JOB_BASE_NAME'''
+                }
+            }
+         }
+    }
+    post {
+	   success {
+         script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+	    		attachLog: true,
+	    		body: '''${SCRIPT, template="groovy-html.template"}''',
+	    		mimeType: 'text/html',
+	    		subject: "[Jenkins] ${jobName} -SUCCESS!",
+	    		to: "${mailRecipients}",
+	    		replyTo: "rr.devops@ril.com",
+	    		attachmentsPattern: '$JOB_BASE_NAME.pdf',
+	    		recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+	    		)
+		  }
+		}
+        failure {
+    	  script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+    			attachLog: true,
+    			body: '''${SCRIPT, template="groovy-html.template"}''',
+    			mimeType: 'text/html',
+    			subject: "[Jenkins] ${jobName} -FAILURE!",
+    			to: "${mailRecipients}",
+    			replyTo: "rr.devops@ril.com",
+    			recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+    			)
+    		}
+    	  }
+        }
+}
+

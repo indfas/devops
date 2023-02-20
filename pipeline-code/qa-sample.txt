@@ -1,0 +1,195 @@
+pipeline {
+   environment {
+      GIT = "http://git.rril.ril.com/DEMO/rrip-sample-demo.git"
+      GIT_USERNAME = 'deploy'
+      MAILTO = 'rituraj.bordoloi@ril.com'
+      JAVA_HOME = "/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.252.b09-2.el7_8.x86_64"
+      ENVIRONMENT = "dev"
+      MAVEN_HOME="/opt/deployment/apache-maven-3.6.3"
+      PATH="$PATH:$MAVEN_HOME/bin"
+      registry = "docker.rril.ril.com"
+      dockerImage = ''
+	  CLASSPATH = "/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/Core/default_jars/*"
+	  NPORT = 31053
+	  TPORT = 8080
+   }
+   agent { node { label 'Retail-QA-Master' } }
+   stages {
+         stage("CleanWorkspace"){
+            steps {
+             cleanWs()
+             script {
+              try{
+                sh '''docker image ls |grep $JOB_BASE_NAME|awk '{print $3}'|xargs docker rmi -f'''
+                }catch(Exception e){
+                  notDeployed = false 
+                }
+             }
+            }
+         }
+         stage("SCM Chekout"){
+            steps {
+             git credentialsId: 'Devops', url: "${GIT}",branch: 'staging'
+            }
+         }
+	     stage('Build'){
+            steps {
+             sh '''mvn clean package'''
+            }
+         }
+    	 stage('SonarQube Analysis') {
+    	    steps {
+				sh '''git checkout master'''
+				sh '''sed -e "s/PROJECTID/${JOB_BASE_NAME}/g" /opt/deployment/sonar-project.properties > sonar-project.properties'''
+				sh '''/opt/sonar-scanner/bin/sonar-scanner'''
+				sh '''git checkout staging'''
+         }
+    	}
+         stage('Fortify Analysis'){
+            steps {
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/sourceanalyzer -cp $CLASSPATH -b $JOB_BASE_NAME -clean'
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/sourceanalyzer -cp $CLASSPATH -scan ${WORKSPACE} -f $JOB_BASE_NAME.fpr'
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/ReportGenerator -format pdf -f $JOB_BASE_NAME.pdf -source $JOB_BASE_NAME.fpr -template DeveloperWorkbook.xml -showSuppressed -showHidden'
+            }
+        }
+		stage('Tagging'){
+		steps {
+		script {
+		try{
+		sh '''
+		if [ ! -f /tmp/$JOB_BASE_NAME-ID ]; then
+		OLD='xxxxx'
+		else
+		OLD=`cat /tmp/$JOB_BASE_NAME-ID`
+		fi
+		NEW=`git rev-parse --short HEAD`
+		echo $OLD
+		echo $NEW
+		if [ "$OLD" == "$NEW" ]
+		then
+			echo "No change"
+			X=`git tag|tail -n1`
+			if [ -z $X ]; then
+			version="1.0.0"
+			else
+			version=\$(git describe --tags `git rev-list --tags --max-count=1`)
+			fi
+			echo "$version" > outFile
+			DockerImage="docker.rril.ril.com/$JOB_BASE_NAME:$version"
+			echo $DockerImage > Image
+		else
+			echo "Change is there"
+			echo $NEW > /tmp/$JOB_BASE_NAME-ID
+			scp /tmp/$JOB_BASE_NAME-ID 10.21.58.85:/tmp/
+			scp /tmp/$JOB_BASE_NAME-ID 10.21.58.83:/tmp/
+			scp /tmp/$JOB_BASE_NAME-ID 10.21.58.82:/tmp/
+			X=`git tag|tail -n1`
+			if [ -z $X ]; then
+			version="1.0.0"
+			else
+			version=\$(git describe --tags `git rev-list --tags --max-count=1`)
+			fi
+			A="\$(echo \$version|cut -d '.' -f1)"
+			B="\$(echo \$version|cut -d '.' -f2)"
+			C="\$(echo \$version|cut -d '.' -f3)"
+			echo $A.$B.$C
+			if [ \$C -gt 8 ]
+			then 
+			if [ \$B -gt 8 ]
+			then
+			A=\$((A+1))
+			B=0 C=0 
+			else
+			B=\$((B+1))
+			C=0
+			fi
+			else
+			C=\$((C+1))
+			fi
+			echo "\$A.\$B.\$C" > outFile
+			nextVersion=`cat outFile`
+			if [ -z ${nextVersion} ]; then
+			echo "1.0.0" > outFile
+			nextVersion="1.0.0"
+			git tag $nextVersion
+			else
+			echo "$nextVersion" > outFile
+			git tag $nextVersion
+			fi
+			echo "docker.rril.ril.com/$JOB_BASE_NAME:$nextVersion" > Image
+			fi
+		'''
+			withCredentials([usernamePassword(credentialsId: 'Deploy', passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
+                sh('git push --tags http://${GIT_USERNAME}:${GIT_PASSWORD}@${GIT_URL}')
+            }
+
+		}catch(Exception e){
+	    }
+		}
+	  }
+	}
+		stage('Deploy to Kubernetes') {
+          steps{
+            script {
+                sh '''
+				sed -i "s/JOB_BASE_NAME/${JOB_BASE_NAME}/g" Dockerfile
+                IMAGE=`cat Image`
+                docker build -t $IMAGE .
+                docker image push $IMAGE
+				sed -e "s/ENVIRONMENT/${ENVIRONMENT}/g" /opt/deployment/N-deploy.yaml > deployment.yaml
+				sed -i "s/JOB_BASE_NAME/${JOB_BASE_NAME}/g" deployment.yaml
+				sed -i "s|IMAGE|${IMAGE}|g" deployment.yaml
+				sed -i "s/NPORT/${NPORT}/g" deployment.yaml
+				sed -i "s|SAP_GW_MS_ENTRY|${SAP_GW_MS_ENTRY}|g" deployment.yaml
+				'''
+    			try{
+    				echo "<<<<<<<< Deleting existing deployments and services >>>>>>>>>"
+    				sh '''sudo kubectl -n kube-rrip delete -f deployment.yaml'''  				
+    			}catch(Exception e){
+    			}
+    			    sleep(time:10,unit:"SECONDS")
+    			try{
+			        sh '''kubectl  -n kube-rrip apply -f deployment.yaml'''
+    			}catch(Exception e){
+    			}
+				sleep(time:30,unit:"SECONDS")
+				sh '''sudo kubectl -n kube-rrip get po | grep $JOB_BASE_NAME'''
+                }
+            }
+         }
+	}
+    post {
+	   success {
+         script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+	    		attachLog: true,
+	    		body: '''${SCRIPT, template="groovy-html.template"}''',
+	    		mimeType: 'text/html',
+	    		subject: "[Jenkins] ${jobName} -SUCCESS!",
+	    		to: "${mailRecipients}",
+	    		replyTo: "rr.devops@ril.com",
+	    		attachmentsPattern: '$JOB_BASE_NAME.pdf',
+	    		recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+	    		)
+		  }
+		}
+        failure {
+    	  script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+    			attachLog: true,
+    			body: '''${SCRIPT, template="groovy-html.template"}''',
+    			mimeType: 'text/html',
+    			subject: "[Jenkins] ${jobName} -FAILURE!",
+    			to: "${mailRecipients}",
+    			replyTo: "rr.devops@ril.com",
+    			recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+    			)
+    		}
+    	  }
+        }
+}
+

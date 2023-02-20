@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: JOB_BASE_NAME
+  name: JOB_BASE_NAME
+  namespace: kube-rrip
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  selector:
+    matchLabels:
+      app: JOB_BASE_NAME
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: JOB_BASE_NAME
+    spec:
+      containers:
+      - image: docker.rril.ril.com/JOB_BASE_NAME:ENV-BUILD_NUMBER-COMMIT_ID
+        command: ["/bin/sh","-c"]
+        args: ['ARG']
+        imagePullPolicy: Always
+        name: JOB_BASE_NAME
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name : TZ
+          value : "Asia/Kolkata"
+        terminationMessagePath: /tmp/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: JOB_BASE_NAME
+  namespace: kube-rrip
+  labels:
+    app: JOB_BASE_NAME
+spec:
+  ports:
+  - port: 8080
+    targetPort: TPORT
+    name: http
+    protocol: TCP
+  selector:
+    app: JOB_BASE_NAME
+  type: ClusterIP
+

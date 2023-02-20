@@ -1,0 +1,119 @@
+pipeline {
+   environment {
+      GIT = "http://git.rril.ril.com/DEMO/rrip-sample-demo.git"
+      MAILTO = 'rituraj.bordoloi@ril.com'
+      JAVA_HOME = "/opt/deployment/jdk1.8.0_261"
+      ENVIRONMENT = "dev"
+      MAVEN_HOME = "/opt/deployment/apache-maven-3.6.3"
+      PATH = "$PATH:$MAVEN_HOME/bin:$JAVA_HOME/jre/bin"
+      registry = "docker.rril.ril.com"
+      dockerImage = ''
+	  CLASSPATH = "/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/Core/default_jars/*"
+	  NPORT = 31053
+	  TPORT = 8080 
+   }
+   agent { node { label 'retail-dev-master-3' } }
+   stages {
+         stage("Cleanup"){
+            steps {
+             cleanWs()
+             script {
+              try{
+                sh '''docker image ls |grep $JOB_BASE_NAME|awk '{print $3}'|xargs docker rmi -f''' 
+                }catch(Exception e){
+                  notDeployed = false 
+                }
+             }
+            }
+         }
+         stage("SCM Chekout"){
+            steps {
+             git credentialsId: 'Devops', url: "${GIT}",branch: 'developer'
+            }
+         }
+         stage('Build Application'){
+            steps { 
+             sh '''mvn clean package'''
+            }
+         }
+
+    	stage('SonarQube Analysis') {
+    	    steps {
+				sh '''sed -e "s/PROJECTID/${JOB_BASE_NAME}/g" /opt/deployment/sonar-project.properties > sonar-project.properties'''
+				sh '''/opt/sonar-scanner/bin/sonar-scanner'''
+         }
+    	}
+         stage('Fortify Analysis'){
+            steps {
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/sourceanalyzer -cp $CLASSPATH -b $JOB_BASE_NAME -clean'
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/sourceanalyzer -cp $CLASSPATH -scan ${WORKSPACE} -f $JOB_BASE_NAME.fpr'
+                sh '/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/bin/ReportGenerator -format pdf -f $JOB_BASE_NAME.pdf -source $JOB_BASE_NAME.fpr -template DeveloperWorkbook.xml -showSuppressed -showHidden'
+            }
+        }
+		stage('Deploy to Kubernetes') {
+          steps{
+            script {
+                sh '''
+				COMMIT=`git rev-parse --short HEAD`
+				sed -i "s/JOB_BASE_NAME/${JOB_BASE_NAME}/g" Dockerfile
+                docker build -t $registry/$JOB_BASE_NAME:${ENVIRONMENT}-$BUILD_NUMBER-$COMMIT .
+				IMAGE="$registry/$JOB_BASE_NAME:${ENVIRONMENT}-$BUILD_NUMBER-$COMMIT"
+				docker push $IMAGE
+				sed -e "s/ENVIRONMENT/${ENVIRONMENT}/g" /opt/deployment/N-deploy.yaml > deployment.yaml
+				sed -i "s/JOB_BASE_NAME/${JOB_BASE_NAME}/g" deployment.yaml
+				sed -i "s|IMAGE|${IMAGE}|g" deployment.yaml
+				sed -i "s/NPORT/${NPORT}/g" deployment.yaml
+				sed -i "s|SAP_GW_MS_ENTRY|${SAP_GW_MS_ENTRY}|g" deployment.yaml
+				'''
+    			try{
+    				echo "<<<<<<<< Deleting existing deployments and services >>>>>>>>>"
+    				sh '''sudo kubectl -n kube-rrip delete -f deployment.yaml'''  				
+    			}catch(Exception e){
+    			}
+    			    sleep(time:10,unit:"SECONDS")
+    			try{
+					sh '''kubectl  -n kube-rrip apply -f deployment.yaml'''
+    			}catch(Exception e){
+    			}
+				sleep(time:30,unit:"SECONDS")
+				sh '''sudo kubectl -n kube-rrip get po | grep $JOB_BASE_NAME'''
+                }
+            }
+         }
+    	    
+	    }
+    post {
+	   success {
+         script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+	    		attachLog: true,
+	    		body: '''${SCRIPT, template="groovy-html.template"}''',
+	    		mimeType: 'text/html',
+	    		subject: "[Jenkins] ${jobName} -SUCCESS!",
+	    		to: "${mailRecipients}",
+	    		replyTo: "rril.devops@ril.com",
+	    		attachmentsPattern: '$JOB_BASE_NAME.pdf',
+	    		recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+	    		)
+		  }
+		}
+        failure {
+    	  script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+    			attachLog: true,
+    			body: '''${SCRIPT, template="groovy-html.template"}''',
+    			mimeType: 'text/html',
+    			subject: "[Jenkins] ${jobName} -FAILURE!",
+    			to: "${mailRecipients}",
+    			replyTo: "rril.devops@ril.com",
+    			recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+    			)
+    		}
+    	  }
+        }
+    }
+   

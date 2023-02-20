@@ -1,0 +1,69 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: appuser
+  namespace: NameSpace
+rules:
+- apiGroups:
+    - apps
+  resources:
+    - deployments
+    - daemonsets
+    - replicasets
+    - statefulsets
+  verbs:
+    - get
+    - list
+    - watch
+    - update
+    - patch
+- apiGroups:
+    - ""
+  resources:
+    - pods
+    - pods/log
+    - services
+    - replicationcontrollers
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+- apiGroups:
+    - batch
+  resources:
+    - cronjobs
+    - jobs
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: penn-appuser
+  namespace: NameSpace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: penn-appuser:appuser
+  namespace: NameSpace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: appuser
+subjects:
+  - kind: ServiceAccount
+    name: penn-appuser
+    namespace: NameSpace
+

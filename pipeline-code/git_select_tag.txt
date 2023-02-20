@@ -1,0 +1,88 @@
+pipeline{
+   environment {
+      GIT = "http://git.rril.ril.com/embitel-projects/rbl-m2.git"
+      MAILTO = 'rituraj.bordoloi@ril.com'
+      JAVA_HOME = "/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.191.b12-0.el7_5.x86_64"
+      ENVIRONMENT = "dev"
+	  DOCROOT = "/var/www/html/temp/rbl-m2/htdocs"
+      PATH = "$PATH:$JAVA_HOME/jre/bin"
+	  CLASSPATH = "/opt/HPE_Security/Fortify_SCA_and_Apps_17.20/Core/default_jars/*" 
+   }
+  
+  agent { node { label 'Mono-PreProd' } }
+
+  parameters {
+    gitParameter(
+      branch: '',
+      branchFilter: ".*",
+      defaultValue: "",
+      description: '',
+      listSize: '10',
+      name: 'Version',
+      quickFilterEnabled: false,
+      selectedValue: 'NONE',
+      sortMode: 'ASCENDING_SMART',
+      tagFilter: "*",
+      type: 'PT_TAG',
+      useRepository: 'http://git.rril.ril.com/embitel-projects/rbl-m2.git')
+   }
+   stages{
+        stage("Cleanup"){
+			steps {
+            cleanWs()
+           }
+        }
+        stage('Checkout') {
+            steps {
+                checkout([$class: 'GitSCM', 
+                          branches: [[name: "${params.Version}"]], 
+                          doGenerateSubmoduleConfigurations: false, 
+                          extensions: [], 
+                          gitTool: 'Default', 
+                          submoduleCfg: [],
+                          userRemoteConfigs: [[credentialsId: 'Devops', url: "${GIT}"]]
+                        ])
+            }
+        }
+    	stage('Deployment'){
+			steps {
+			    sh 'echo Deploying'
+				sh 'rsync -az --exclude-from=/opt/deployment/Exclude ./htdocs/ $DOCROOT/'
+				//sh 'cd $DOCROOT/app && php -dmemory_limit=5G bin/magento s:up && php -dmemory_limit=5G bin/magento setup:di:compile && php bin/magento s:s:d -f && php bin/magento c:c && php bin/magento c:f'
+			}
+		}
+	}
+    post {
+	   success {
+         script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+	    		attachLog: true,
+	    		body: '''${SCRIPT, template="groovy-html.template"}''',
+	    		mimeType: 'text/html',
+	    		subject: "[Jenkins] ${jobName} -SUCCESS!",
+	    		to: "${mailRecipients}",
+	    		replyTo: "rril.devops@ril.com",
+	    		attachmentsPattern: '$JOB_BASE_NAME.pdf',
+	    		recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+	    		)
+		  }
+		}
+        failure {
+    	  script {
+             def mailRecipients = "$MAILTO"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+    			attachLog: true,
+    			body: '''${SCRIPT, template="groovy-html.template"}''',
+    			mimeType: 'text/html',
+    			subject: "[Jenkins] ${jobName} -FAILURE!",
+    			to: "${mailRecipients}",
+    			replyTo: "rril.devops@ril.com",
+    			recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+    			)
+    		}
+    	  }
+        }	
+}

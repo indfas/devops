@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-deployment
+  namespace: csquare-prod
+  labels:
+    app: prometheus-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-server
+  template:
+    metadata:
+      labels:
+        app: prometheus-server
+    spec:
+      containers:
+        - name: prometheus
+          image: docker.rril.ril.com/prometheus:latest
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus/"
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: prometheus-data
+              mountPath: /prometheus/
+      volumes:
+        - name: prometheus-config
+          hostPath:
+            path: /data/prometheus/conf
+        - name: prometheus-data
+          hostPath:
+            path: /data/prometheus/data
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        disktype: data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-server
+  namespace: csquare-prod
+  labels:
+    app: prometheus-server
+spec:
+  ports:
+  - port: 9090
+    nodePort: 31111
+    name: http
+    protocol: TCP
+  selector:
+    app: prometheus-server
+  type: NodePort
+

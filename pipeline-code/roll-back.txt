@@ -1,0 +1,73 @@
+pipeline {
+  environment {
+    MAILTO = 'rituraj.bordoloi@ril.com'
+  }
+
+  agent { node { label 'retail-qa-master-3' } }
+
+  parameters {
+    imageTag credentialId: 'deploy', description: 'Rollback', filter: '.*', image: 'rrip-loyalty-earning-service', name: 'DOCKER_IMAGE', registry: 'https://docker.rril.ril.com'
+  }
+
+	stages {
+		stage('Fatching Rollback Details') {
+		steps {
+			git credentialsId: 'Devops', branch: "staging", url: '$PROJECT'
+		    }
+		}
+
+        stage('Deploy to Cluster') {
+           steps {
+			script {
+
+    		try{
+    			echo "<<<<<<<< Deleting Current deployments and services >>>>>>>>>"
+    			sh '''sudo kubectl -n kube-rrip delete -f deployment.yaml'''
+    		    }catch(Exception e){
+    		}
+				sleep(time:20,unit:"SECONDS")
+				sh '''sed -i "s|- image: .*$|- image: docker.rril.ril.com/IMAGE|" deployment.yaml'''
+				sh '''sed -i "s|IMAGE|$DOCKER_IMAGE|" deployment.yaml'''
+			try{
+		        sh '''kubectl  -n kube-rrip apply -f deployment.yaml'''
+			    }catch(Exception e){
+			    }
+               }
+           }
+        }
+	}
+    post {
+	   success {
+         script {
+             def mailRecipients = "${MAILTO}"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+	    		attachLog: true,
+	    		body: '''${SCRIPT, template="groovy-html.template"}''',
+	    		mimeType: 'text/html',
+	    		subject: "[Jenkins] ${jobName} -SUCCESS!",
+	    		to: "${mailRecipients}",
+	    		replyTo: "rr.devops@ril.com",
+	    		attachmentsPattern: '$JOB_BASE_NAME.pdf',
+	    		recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+	    		)
+		  }
+		}
+        failure {
+    	  script {
+             def mailRecipients = "${MAILTO}"
+             def jobName = currentBuild.fullDisplayName
+             emailext (
+    			attachLog: true,
+    			body: '''${SCRIPT, template="groovy-html.template"}''',
+    			mimeType: 'text/html',
+    			subject: "[Jenkins] ${jobName} -FAILURE!",
+    			to: "${mailRecipients}",
+    			replyTo: "rr.devops@ril.com",
+    			recipientProviders: [[$class: 'CulpritsRecipientProvider']]
+    			)
+    		}
+    	  }
+        }
+}
+

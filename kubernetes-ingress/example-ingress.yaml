@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: exampleapp
+  namespace: example
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: example.ril.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: exaple-backend-service
+            port:
+              number: 8080
+        path: /example
+        pathType: Prefix

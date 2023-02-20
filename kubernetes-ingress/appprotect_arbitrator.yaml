@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appprotect-dos-arb
+  namespace: nginx-ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: appprotect-dos-arb
+  template:
+    metadata:
+      labels:
+        app: appprotect-dos-arb
+    spec:
+      containers:
+      - image: docker.rril.ril.com/ingress/app_protect_dos_arb:1.1.0
+        imagePullPolicy: IfNotPresent
+        name: appprotect-dos-arb
+        ports:
+        - containerPort: 3000
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 1001

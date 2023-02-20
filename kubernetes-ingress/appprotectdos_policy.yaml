@@ -1,0 +1,97 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.4.0
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apiextensions.k8s.io/v1","kind":"CustomResourceDefinition","metadata":{"annotations":{"controller-gen.kubebuilder.io/version":"v0.4.0"},"creationTimestamp":null,"name":"apdospolicies.appprotectdos.f5.com"},"spec":{"group":"appprotectdos.f5.com","names":{"kind":"APDosPolicy","listKind":"APDosPoliciesList","plural":"apdospolicies","singular":"apdospolicy"},"preserveUnknownFields":false,"scope":"Namespaced","versions":[{"name":"v1beta1","schema":{"openAPIV3Schema":{"description":"APDosPolicy is the Schema for the APDosPolicy API","properties":{"apiVersion":{"description":"APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources","type":"string"},"kind":{"description":"Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds","type":"string"},"metadata":{"type":"object"},"spec":{"description":"APDosPolicySpec defines the desired state of APDosPolicy","properties":{"automation_tools_detection":{"default":"on","enum":["on","off"],"type":"string"},"bad_actors":{"default":"on","enum":["on","off"],"type":"string"},"mitigation_mode":{"default":"standard","enum":["standard","conservative","none"],"type":"string"},"signatures":{"default":"on","enum":["on","off"],"type":"string"},"tls_fingerprint":{"default":"on","enum":["on","off"],"type":"string"}},"type":"object"}},"type":"object"}},"served":true,"storage":true}]}}
+  creationTimestamp: "2022-02-04T13:23:00Z"
+  generation: 1
+  name: apdospolicies.appprotectdos.f5.com
+  resourceVersion: "1849140"
+  uid: ecae511d-65ee-4095-9795-893aa49c5c37
+spec:
+  conversion:
+    strategy: None
+  group: appprotectdos.f5.com
+  names:
+    kind: APDosPolicy
+    listKind: APDosPoliciesList
+    plural: apdospolicies
+    singular: apdospolicy
+  scope: Namespaced
+  versions:
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: APDosPolicy is the Schema for the APDosPolicy API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: APDosPolicySpec defines the desired state of APDosPolicy
+            properties:
+              automation_tools_detection:
+                default: "on"
+                enum:
+                - "on"
+                - "off"
+                type: string
+              bad_actors:
+                default: "on"
+                enum:
+                - "on"
+                - "off"
+                type: string
+              mitigation_mode:
+                default: standard
+                enum:
+                - standard
+                - conservative
+                - none
+                type: string
+              signatures:
+                default: "on"
+                enum:
+                - "on"
+                - "off"
+                type: string
+              tls_fingerprint:
+                default: "on"
+                enum:
+                - "on"
+                - "off"
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: APDosPolicy
+    listKind: APDosPoliciesList
+    plural: apdospolicies
+    singular: apdospolicy
+  conditions:
+  - lastTransitionTime: "2022-02-04T13:23:00Z"
+    message: no conflicts found
+    reason: NoConflicts
+    status: "True"
+    type: NamesAccepted
+  - lastTransitionTime: "2022-02-04T13:23:00Z"
+    message: the initial names have been accepted
+    reason: InitialNamesAccepted
+    status: "True"
+    type: Established
+  storedVersions:
+  - v1beta1
